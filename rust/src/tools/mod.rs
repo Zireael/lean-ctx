@@ -45,6 +45,9 @@ impl LeanCtxServer {
             saved_tokens: saved,
             mode,
         });
+
+        let output_tokens = original.saturating_sub(saved);
+        crate::core::stats::record(tool, original, output_tokens);
     }
 }
 

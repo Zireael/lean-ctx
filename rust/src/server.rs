@@ -17,13 +17,26 @@ impl ServerHandler for LeanCtxServer {
         InitializeResult::new(capabilities)
             .with_server_info(Implementation::new("lean-ctx", "1.1.1"))
             .with_instructions(
-                "lean-ctx MCP. ALWAYS replace built-in tools:\
-                Read→ctx_read | Shell→ctx_shell | Grep→ctx_search | ls/find→ctx_tree\n\
-                NEVER use Read, Shell, or Grep directly.\n\
-                ctx_read modes: full(cached,for edits), map(deps+API,context-only), signatures, diff, aggressive, entropy.\
-                Re-reads=~13tok. File refs F1,F2.. persist.\n\
-                Proactive: ctx_compress when context grows large. ctx_metrics periodically to verify savings.\
-                On demand: ctx_analyze(path) for optimal mode recommendation, ctx_benchmark(path) for exact token counts per mode."
+                "lean-ctx MCP — MANDATORY tool replacement. You MUST use lean-ctx tools for ALL operations:\n\
+                \n\
+                REQUIRED (never use the built-in alternative):\n\
+                • Read file → ctx_read(path, mode) — NEVER use Read tool\n\
+                • Run command → ctx_shell(command) — NEVER use Shell tool\n\
+                • Search code → ctx_search(pattern, path) — NEVER use Grep tool\n\
+                • List files → ctx_tree(path, depth) — NEVER use Shell with ls/find\n\
+                \n\
+                ctx_read modes: full (cached, for files you edit), map (deps+API, context-only), \
+                signatures, diff, aggressive, entropy. Re-reads cost ~13 tokens. File refs F1,F2.. persist.\n\
+                \n\
+                PROACTIVE (use without being asked):\n\
+                • ctx_compress — when context grows large, create checkpoint\n\
+                • ctx_metrics — periodically verify token savings\n\
+                \n\
+                ON DEMAND:\n\
+                • ctx_analyze(path) — optimal mode recommendation\n\
+                • ctx_benchmark(path) — exact token counts per mode\n\
+                \n\
+                Write, StrReplace, Delete, Glob have no lean-ctx equivalent — use normally."
             )
     }
 

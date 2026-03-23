@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lean-ctx — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#09090f;--surface:#111118;--surface2:#181822;
+  --border:#1f1f2e;--border-h:#2d2d40;
+  --text:#e4e4f0;--text2:#a8a8c0;--muted:#6a6a88;
+  --green:#6ee7b7;--green-d:rgba(110,231,183,.12);--green-m:rgba(110,231,183,.35);
+  --purple:#818cf8;--purple-d:rgba(129,140,248,.12);--purple-m:rgba(129,140,248,.35);
+  --blue:#38bdf8;--blue-d:rgba(56,189,248,.12);
+  --pink:#f472b6;--pink-d:rgba(244,114,182,.12);
+  --yellow:#fbbf24;--yellow-d:rgba(251,191,36,.12);
+  --red:#f87171;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;
+  --mono:'SF Mono','JetBrains Mono','Fira Code',monospace;
+  --r:12px;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;line-height:1.5}
+.app{max-width:1320px;margin:0 auto;padding:28px 24px 80px}
+
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;
+  padding-bottom:20px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:baseline;gap:2px}
+.logo h1{font-size:24px;font-weight:800;letter-spacing:-.5px}
+.logo h1 span{color:var(--green);font-weight:300}
+.version{color:var(--muted);font-size:12px;margin-left:12px}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.btn{background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;
+  border-radius:8px;font-size:12px;cursor:pointer;transition:.2s}
+.btn:hover{border-color:var(--green);color:var(--green)}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px;
+  transition:border-color .2s,transform .15s}
+.kpi:hover{border-color:var(--border-h);transform:translateY(-1px)}
+.kpi-icon{font-size:18px;margin-bottom:6px;opacity:.7}
+.kpi-val{font-size:30px;font-weight:800;letter-spacing:-1px;margin-bottom:2px}
+.kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;font-weight:700}
+.kpi-sub{font-size:11px;color:var(--text2);margin-top:6px}
+.c-green .kpi-val{color:var(--green)}.c-purple .kpi-val{color:var(--purple)}
+.c-blue .kpi-val{color:var(--blue)}.c-pink .kpi-val{color:var(--pink)}
+.c-yellow .kpi-val{color:var(--yellow)}
+
+.row{display:grid;gap:14px;margin-bottom:14px}
+.r-2-1{grid-template-columns:2fr 1fr}
+.r-1-1{grid-template-columns:1fr 1fr}
+.r-full{grid-template-columns:1fr}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px}
+.card h3{font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.6px}
+.card canvas{max-height:260px}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;
+  padding:10px 14px;border-bottom:1px solid var(--border);font-weight:700}
+th.r{text-align:right}
+td{padding:11px 14px;font-size:13px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:12px}
+td.r{text-align:right}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface2)}
+.tag{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;font-family:var(--mono)}
+.tg{background:var(--green-d);color:var(--green)}
+.tp{background:var(--purple-d);color:var(--purple)}
+.tb{background:var(--blue-d);color:var(--blue)}
+.ty{background:var(--yellow-d);color:var(--yellow)}
+
+.bar-bg{background:var(--surface2);border-radius:4px;height:6px;overflow:hidden;margin-top:4px}
+.bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.bar-green{background:var(--green)}.bar-purple{background:var(--purple)}
+
+.empty{text-align:center;padding:80px 20px}
+.empty h2{font-size:20px;margin-bottom:10px;font-weight:700}
+.empty p{font-size:14px;color:var(--muted);max-width:440px;margin:0 auto;line-height:1.7}
+.loading{text-align:center;padding:100px 20px;color:var(--muted);font-size:14px}
+
+.footer{text-align:center;padding:40px 20px;color:var(--muted);font-size:11px;
+  border-top:1px solid var(--border);margin-top:40px}
+.footer a{color:var(--green);text-decoration:none}
+
+@media(max-width:1024px){.kpi-grid{grid-template-columns:repeat(3,1fr)}.r-2-1,.r-1-1{grid-template-columns:1fr}}
+@media(max-width:640px){.kpi-grid{grid-template-columns:repeat(2,1fr)}header{flex-direction:column;gap:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">
+      <h1>lean<span>-ctx</span></h1>
+      <span class="version">v1.1.1</span>
+    </div>
+    <div class="hdr-right">
+      <span id="lastUpdate" style="font-size:11px;color:var(--muted)"></span>
+      <button class="btn" onclick="load()">Refresh</button>
+    </div>
+  </header>
+  <div id="root"><div class="loading">Loading dashboard...</div></div>
+  <div class="footer">lean-ctx — Hybrid Context Optimizer · <a href="https://lean-ctx.pounce.ch" target="_blank">lean-ctx.pounce.ch</a></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+
+function fmt(n){
+  if(n>=1e6)return(n/1e6).toFixed(1)+'M';
+  if(n>=1e3)return(n/1e3).toFixed(1)+'K';
+  return n.toString();
+}
+function fmtFull(n){return n.toLocaleString('en-US')}
+function pct(a,b){return b>0?Math.round(a/b*100):0}
+function cost(tokens){return'$'+(tokens/1e6*15).toFixed(2)}
+function isMcp(name){return name.startsWith('ctx_')}
+function source(name){return isMcp(name)?'mcp':'hook'}
+function srcBadge(name){
+  return isMcp(name)
+    ?'<span class="tag tp">MCP</span>'
+    :'<span class="tag tb">Hook</span>';
+}
+function splitBySource(cmds){
+  let mcp={count:0,input:0,output:0,saved:0};
+  let hook={count:0,input:0,output:0,saved:0};
+  for(const[name,s]of cmds){
+    const t=isMcp(name)?mcp:hook;
+    t.count+=s.count;t.input+=s.input_tokens;t.output+=s.output_tokens;
+    t.saved+=s.input_tokens-s.output_tokens;
+  }
+  return{mcp,hook};
+}
+
+let charts={};
+const barColors=['#6ee7b7','#818cf8','#38bdf8','#f472b6','#fbbf24','#a78bfa','#34d399','#f97316','#e879f9','#22d3ee'];
+
+async function load(){
+  try{
+    const r=await fetch('/api/stats');
+    const d=await r.json();
+    render(d);
+    const now=new Date();
+    $('lastUpdate').textContent='Updated '+now.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }catch(e){
+    $('root').innerHTML='<div class="empty"><h2>Connection Error</h2><p>Could not reach the dashboard API. Make sure lean-ctx dashboard is running.</p></div>';
+  }
+}
+
+function render(d){
+  if(!d.total_commands||d.total_commands===0){
+    $('root').innerHTML=`<div class="empty">
+      <h2>No data yet</h2>
+      <p>Start using lean-ctx via shell hook (<code>git status</code>, <code>npm install</code>) or MCP tools (<code>ctx_read</code>, <code>ctx_shell</code>) in your editor. Savings will appear here automatically.</p>
+    </div>`;
+    return;
+  }
+
+  const saved=d.total_input_tokens-d.total_output_tokens;
+  const rate=pct(saved,d.total_input_tokens);
+  const days=d.daily?d.daily.length:0;
+  const costSaved=cost(saved);
+  const avgPerDay=days>0?Math.round(saved/days):0;
+  const cmds=Object.entries(d.commands||{});
+  cmds.sort((a,b)=>(b[1].input_tokens-b[1].output_tokens)-(a[1].input_tokens-a[1].output_tokens));
+  const daily=d.daily||[];
+  const split=splitBySource(cmds);
+
+  let firstUse='—';
+  if(d.first_use)firstUse=d.first_use.substring(0,10);
+
+  $('root').innerHTML=`
+    <div class="kpi-grid">
+      <div class="kpi c-green">
+        <div class="kpi-icon">&#9889;</div>
+        <div class="kpi-val">${fmt(saved)}</div>
+        <div class="kpi-label">Tokens Saved</div>
+        <div class="kpi-sub">${fmtFull(saved)} tokens total</div>
+      </div>
+      <div class="kpi c-purple">
+        <div class="kpi-icon">&#9672;</div>
+        <div class="kpi-val">${rate}%</div>
+        <div class="kpi-label">Savings Rate</div>
+        <div class="kpi-sub">${fmt(d.total_input_tokens)} in → ${fmt(d.total_output_tokens)} out</div>
+      </div>
+      <div class="kpi c-blue">
+        <div class="kpi-icon">&#9654;</div>
+        <div class="kpi-val">${fmtFull(d.total_commands)}</div>
+        <div class="kpi-label">Total Calls</div>
+        <div class="kpi-sub">${cmds.filter(c=>isMcp(c[0])).length} MCP · ${cmds.filter(c=>!isMcp(c[0])).length} Hook</div>
+      </div>
+      <div class="kpi c-pink">
+        <div class="kpi-icon">&#9776;</div>
+        <div class="kpi-val">${days}</div>
+        <div class="kpi-label">Days Active</div>
+        <div class="kpi-sub">Since ${firstUse}</div>
+      </div>
+      <div class="kpi c-yellow">
+        <div class="kpi-icon">&#36;</div>
+        <div class="kpi-val">${costSaved}</div>
+        <div class="kpi-label">Cost Saved</div>
+        <div class="kpi-sub">@ $15/M input tokens</div>
+      </div>
+    </div>
+
+    <div class="row r-1-1">
+      <div class="card">
+        <h3>MCP Tools</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Calls</span>
+            <div style="font-size:24px;font-weight:700;color:var(--purple);margin-top:4px">${fmtFull(split.mcp.count)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Tokens Saved</span>
+            <div style="font-size:24px;font-weight:700;color:var(--green);margin-top:4px">${fmt(split.mcp.saved)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Savings Rate</span>
+            <div style="font-size:24px;font-weight:700;color:var(--purple);margin-top:4px">${pct(split.mcp.saved,split.mcp.input)}%</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Cost Saved</span>
+            <div style="font-size:24px;font-weight:700;color:var(--yellow);margin-top:4px">${cost(split.mcp.saved)}</div></div>
+        </div>
+        <div class="bar-bg" style="margin-top:16px">
+          <div class="bar-fill bar-purple" style="width:${pct(split.mcp.saved,split.mcp.input)}%"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Shell Hook</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Calls</span>
+            <div style="font-size:24px;font-weight:700;color:var(--blue);margin-top:4px">${fmtFull(split.hook.count)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Tokens Saved</span>
+            <div style="font-size:24px;font-weight:700;color:var(--green);margin-top:4px">${fmt(split.hook.saved)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Savings Rate</span>
+            <div style="font-size:24px;font-weight:700;color:var(--blue);margin-top:4px">${pct(split.hook.saved,split.hook.input)}%</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Cost Saved</span>
+            <div style="font-size:24px;font-weight:700;color:var(--yellow);margin-top:4px">${cost(split.hook.saved)}</div></div>
+        </div>
+        <div class="bar-bg" style="margin-top:16px">
+          <div class="bar-fill" style="width:${pct(split.hook.saved,split.hook.input)}%;background:var(--blue)"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row r-2-1">
+      <div class="card"><h3>Cumulative Token Savings</h3><canvas id="cCumulative"></canvas></div>
+      <div class="card"><h3>Daily Savings Rate</h3><canvas id="cRate"></canvas></div>
+    </div>
+
+    <div class="row r-1-1">
+      <div class="card"><h3>Daily Activity</h3><canvas id="cDaily"></canvas></div>
+      <div class="card"><h3>Top Commands by Savings</h3><canvas id="cCommands"></canvas></div>
+    </div>
+
+    <div class="row r-1-1">
+      <div class="card"><h3>MCP vs Shell Hook</h3><canvas id="cSourcePie"></canvas></div>
+      <div class="card">
+        <h3>Session Overview</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:8px 0">
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Avg Saved/Day</span>
+            <div style="font-size:22px;font-weight:700;color:var(--green);margin-top:4px">${fmt(avgPerDay)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Total Input</span>
+            <div style="font-size:22px;font-weight:700;margin-top:4px">${fmt(d.total_input_tokens)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Total Output</span>
+            <div style="font-size:22px;font-weight:700;margin-top:4px">${fmt(d.total_output_tokens)}</div></div>
+          <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase">Cost Without</span>
+            <div style="font-size:22px;font-weight:700;color:var(--red);margin-top:4px">${cost(d.total_input_tokens)}</div></div>
+        </div>
+        <div class="bar-bg" style="margin-top:12px">
+          <div class="bar-fill bar-green" style="width:${rate}%"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span>0%</span><span>${rate}% compressed</span><span>100%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="row r-full">
+      <div class="card">
+        <h3>Command Breakdown</h3>
+        <table>
+          <thead><tr>
+            <th>Source</th><th>Command</th><th class="r">Count</th><th class="r">Input</th>
+            <th class="r">Output</th><th class="r">Saved</th><th class="r">Rate</th><th style="width:120px">Compression</th>
+          </tr></thead>
+          <tbody id="tCmds"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="row r-full">
+      <div class="card">
+        <h3>Daily History (Last 30 Days)</h3>
+        <table>
+          <thead><tr>
+            <th>Date</th><th class="r">Commands</th><th class="r">Input</th>
+            <th class="r">Output</th><th class="r">Saved</th><th class="r">Rate</th><th style="width:140px">Activity</th>
+          </tr></thead>
+          <tbody id="tDaily"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  renderCharts(daily,cmds,split);
+  renderCmdTable(cmds);
+  renderDailyTable(daily);
+}
+
+function chartDefaults(){
+  return {
+    responsive:true,
+    maintainAspectRatio:true,
+    plugins:{legend:{display:false}},
+    scales:{
+      x:{ticks:{color:'#6a6a88',font:{size:10}},grid:{color:'#1f1f2e'}},
+      y:{ticks:{color:'#6a6a88',font:{size:10},callback:v=>fmt(v)},grid:{color:'#1f1f2e'}}
+    }
+  };
+}
+
+function renderCharts(daily,cmds,split){
+  Object.values(charts).forEach(c=>{if(c&&c.destroy)c.destroy()});
+  charts={};
+
+  const labels=daily.map(d=>d.date.substring(5));
+  const savedArr=daily.map(d=>d.input_tokens-d.output_tokens);
+  const outputArr=daily.map(d=>d.output_tokens);
+  const rateArr=daily.map(d=>d.input_tokens>0?Math.round((d.input_tokens-d.output_tokens)/d.input_tokens*100):0);
+
+  let cumulative=[];
+  let sum=0;
+  for(const s of savedArr){sum+=s;cumulative.push(sum)}
+
+  charts.cum=new Chart($('cCumulative'),{
+    type:'line',
+    data:{labels,datasets:[{
+      data:cumulative,fill:true,
+      borderColor:'#6ee7b7',backgroundColor:'rgba(110,231,183,.08)',
+      borderWidth:2,pointRadius:daily.length>30?0:3,pointBackgroundColor:'#6ee7b7',
+      tension:.3
+    }]},
+    options:{...chartDefaults(),plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:ctx=>`${fmt(ctx.parsed.y)} tokens saved`}}}}
+  });
+
+  charts.rate=new Chart($('cRate'),{
+    type:'line',
+    data:{labels,datasets:[{
+      data:rateArr,fill:true,
+      borderColor:'#818cf8',backgroundColor:'rgba(129,140,248,.08)',
+      borderWidth:2,pointRadius:daily.length>20?0:3,pointBackgroundColor:'#818cf8',
+      tension:.3
+    }]},
+    options:{...chartDefaults(),
+      scales:{...chartDefaults().scales,y:{...chartDefaults().scales.y,
+        ticks:{...chartDefaults().scales.y.ticks,callback:v=>v+'%'},
+        suggestedMin:0,suggestedMax:100}},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>ctx.parsed.y+'% savings rate'}}}}
+  });
+
+  charts.daily=new Chart($('cDaily'),{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'Saved',data:savedArr,backgroundColor:'rgba(110,231,183,.6)',borderRadius:4,borderSkipped:false},
+      {label:'Sent',data:outputArr,backgroundColor:'rgba(129,140,248,.3)',borderRadius:4,borderSkipped:false}
+    ]},
+    options:{...chartDefaults(),
+      plugins:{legend:{display:true,position:'bottom',labels:{color:'#6a6a88',font:{size:11},usePointStyle:true,pointStyle:'circle'}}},
+      scales:{...chartDefaults().scales,x:{...chartDefaults().scales.x,stacked:true},y:{...chartDefaults().scales.y,stacked:true}}}
+  });
+
+  const top10=cmds.slice(0,10);
+  const cmdLabels=top10.map(c=>c[0]);
+  const cmdSaved=top10.map(c=>c[1].input_tokens-c[1].output_tokens);
+  const cmdColors=top10.map(c=>isMcp(c[0])?'#818cf8':'#38bdf8');
+
+  charts.cmds=new Chart($('cCommands'),{
+    type:'bar',
+    data:{labels:cmdLabels,datasets:[{
+      data:cmdSaved,backgroundColor:cmdColors,
+      borderRadius:6,borderSkipped:false
+    }]},
+    options:{...chartDefaults(),indexAxis:'y',
+      scales:{
+        x:{ticks:{color:'#6a6a88',font:{size:10},callback:v=>fmt(v)},grid:{color:'#1f1f2e'}},
+        y:{ticks:{color:'#a8a8c0',font:{size:11,family:"'SF Mono','JetBrains Mono',monospace"}},grid:{display:false}}
+      },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>fmt(ctx.parsed.x)+' tokens saved'}}}}
+  });
+
+  charts.src=new Chart($('cSourcePie'),{
+    type:'doughnut',
+    data:{
+      labels:['MCP Tools','Shell Hook'],
+      datasets:[{
+        data:[split.mcp.saved,split.hook.saved],
+        backgroundColor:['#818cf8','#38bdf8'],borderWidth:0,hoverOffset:8
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:true,
+      plugins:{legend:{position:'bottom',labels:{color:'#6a6a88',font:{size:12},padding:16,usePointStyle:true,pointStyle:'circle'}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.parsed)} tokens saved`}}}}
+  });
+}
+
+function renderCmdTable(cmds){
+  const tbody=$('tCmds');
+  if(!tbody)return;
+  const maxSaved=cmds.length>0?Math.max(...cmds.map(c=>c[1].input_tokens-c[1].output_tokens),1):1;
+
+  tbody.innerHTML=cmds.map(([name,s])=>{
+    const sv=s.input_tokens-s.output_tokens;
+    const r=pct(sv,s.input_tokens);
+    const barW=pct(sv,maxSaved);
+    return `<tr>
+      <td>${srcBadge(name)}</td>
+      <td style="color:var(--text)">${name}</td>
+      <td class="r">${fmtFull(s.count)}</td>
+      <td class="r">${fmt(s.input_tokens)}</td>
+      <td class="r">${fmt(s.output_tokens)}</td>
+      <td class="r"><span class="tag tg">${fmt(sv)}</span></td>
+      <td class="r"><span class="tag tp">${r}%</span></td>
+      <td><div class="bar-bg"><div class="bar-fill ${isMcp(name)?'bar-purple':'bar-green'}" style="width:${barW}%"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDailyTable(daily){
+  const tbody=$('tDaily');
+  if(!tbody)return;
+  const last30=daily.slice(-30).reverse();
+  const maxCmd=Math.max(...last30.map(d=>d.commands),1);
+
+  tbody.innerHTML=last30.map(d=>{
+    const sv=d.input_tokens-d.output_tokens;
+    const r=pct(sv,d.input_tokens);
+    const barW=pct(d.commands,maxCmd);
+    return `<tr>
+      <td style="color:var(--text)">${d.date}</td>
+      <td class="r">${d.commands}</td>
+      <td class="r">${fmt(d.input_tokens)}</td>
+      <td class="r">${fmt(d.output_tokens)}</td>
+      <td class="r"><span class="tag tg">${fmt(sv)}</span></td>
+      <td class="r"><span class="tag ${r>=50?'tg':r>=20?'tp':'ty'}">${r}%</span></td>
+      <td><div class="bar-bg"><div class="bar-fill bar-purple" style="width:${barW}%"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+
+load();
+</script>
+</body>
+</html>
