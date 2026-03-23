@@ -56,7 +56,7 @@ cp target/release/lean-ctx ~/.local/bin/
 ### Verify Installation
 
 ```bash
-lean-ctx --version   # Should show "lean-ctx 1.1.1"
+lean-ctx --version   # Should show "lean-ctx 1.2.0"
 lean-ctx gain        # Should show token savings stats
 ```
 

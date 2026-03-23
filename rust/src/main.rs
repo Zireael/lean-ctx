@@ -4,7 +4,6 @@ use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod core;
-mod dashboard;
 mod server;
 mod shell;
 mod tools;
@@ -33,13 +32,6 @@ async fn main() -> Result<()> {
             }
             "gain" => {
                 println!("{}", core::stats::format_gain());
-                return Ok(());
-            }
-            "dashboard" => {
-                let port = rest.first()
-                    .and_then(|p| p.strip_prefix("--port=").or_else(|| p.strip_prefix("-p=")))
-                    .and_then(|p| p.parse().ok());
-                dashboard::start(port).await;
                 return Ok(());
             }
             "init" => {
@@ -71,7 +63,7 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
             "--version" | "-V" => {
-                println!("lean-ctx 1.1.1");
+                println!("lean-ctx 1.2.0");
                 return Ok(());
             }
             "--help" | "-h" => {
@@ -91,7 +83,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    tracing::info!("lean-ctx v1.1.1 MCP server starting");
+    tracing::info!("lean-ctx v1.2.0 MCP server starting");
 
     let server = tools::create_server();
     let transport = rmcp::transport::io::stdio();
@@ -117,7 +109,7 @@ fn shell_quote(s: &str) -> String {
 
 fn print_help() {
     println!(
-        "lean-ctx 1.1.1 — Hybrid Context Optimizer (Shell Hook + MCP Server)
+        "lean-ctx 1.2.0 — Hybrid Context Optimizer (Shell Hook + MCP Server)
 
 USAGE:
     lean-ctx                       Start MCP server (stdio)
@@ -127,7 +119,6 @@ USAGE:
 
 COMMANDS:
     gain                           Show persistent token savings stats
-    dashboard [--port=N]           Open web dashboard (default: http://localhost:3333)
     init [--global]                Install shell aliases (.zshrc/.bashrc)
     read <file> [-m mode]          Read file with compression
     diff <file1> <file2>           Compressed file diff
@@ -150,7 +141,6 @@ OPTIONS:
 EXAMPLES:
     lean-ctx -c \"git status\"       Compressed git output
     lean-ctx gain                  Show savings statistics
-    lean-ctx dashboard             Open web dashboard at localhost:3333
     lean-ctx init --global         Install shell aliases
     lean-ctx read src/main.rs -m map
     lean-ctx grep \"pub fn\" src/
