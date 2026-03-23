@@ -8,6 +8,7 @@ export interface CacheEntry {
   turnIndex: number;
   sizeBytes: number;
   lineCount: number;
+  readCount: number;
 }
 
 export interface CacheStats {
@@ -16,6 +17,7 @@ export interface CacheStats {
   cacheMisses: number;
   estimatedTokensSaved: number;
   filesTracked: number;
+  hitRate: number;
 }
 
 const CHARS_PER_TOKEN = 4;
@@ -49,6 +51,7 @@ export class SessionCache {
 
   store(path: string, content: string): CacheEntry {
     const hash = createHash('md5').update(content).digest('hex');
+    const existing = this.entries.get(path);
     const entry: CacheEntry = {
       content,
       hash,
@@ -56,6 +59,7 @@ export class SessionCache {
       turnIndex: this.turnCounter,
       sizeBytes: Buffer.byteLength(content),
       lineCount: content.split('\n').length,
+      readCount: (existing?.readCount ?? 0) + 1,
     };
     this.entries.set(path, entry);
     return entry;
@@ -89,7 +93,18 @@ export class SessionCache {
       cacheMisses: this.totalReads - this.cacheHits,
       estimatedTokensSaved,
       filesTracked: this.entries.size,
+      hitRate: this.totalReads > 0 ? Math.round((this.cacheHits / this.totalReads) * 100) : 0,
     };
+  }
+
+  getAllEntries(): [string, CacheEntry][] {
+    return Array.from(this.entries.entries());
+  }
+
+  getFileRef(path: string): string {
+    const keys = Array.from(this.entries.keys());
+    const idx = keys.indexOf(path);
+    return idx >= 0 ? `F${idx + 1}` : 'F?';
   }
 
   clear(): void {
