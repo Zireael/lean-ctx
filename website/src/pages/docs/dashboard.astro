@@ -2,32 +2,55 @@
 import DocsLayout from '../../layouts/DocsLayout.astro';
 ---
 
-<DocsLayout title="Session Metrics & Savings Dashboard" description="Track token savings with ctx_metrics (per session) and lean-ctx gain (lifetime).">
+<DocsLayout title="Session Metrics & Savings Dashboard" description="Track token savings with ctx_metrics (per session), lean-ctx gain (CLI), and lean-ctx dashboard (web UI).">
   <p>
-    lean-ctx tracks token savings at two levels: <strong>per-session</strong> via the <code>ctx_metrics</code> MCP tool,
-    and <strong>lifetime</strong> via the <code>lean-ctx gain</code> CLI command with persistent stats.
+    lean-ctx tracks token savings at three levels:
+  </p>
+  <ul>
+    <li><strong>Per-session</strong> via the <code>ctx_metrics</code> MCP tool (in-editor)</li>
+    <li><strong>Lifetime CLI</strong> via <code>lean-ctx gain</code> (terminal)</li>
+    <li><strong>Web Dashboard</strong> via <code>lean-ctx dashboard</code> (browser)</li>
+  </ul>
+  <p>
+    Both MCP tool calls and shell hook invocations are tracked in <code>~/.lean-ctx/stats.json</code>.
   </p>
 
-  <h2>lean-ctx gain (Lifetime Stats)</h2>
+  <h2>lean-ctx dashboard (Web UI)</h2>
   <p>
-    Run <code>lean-ctx gain</code> from any terminal to see cumulative savings across all sessions.
-    Stats are persisted to <code>~/.lean-ctx/stats.json</code>.
+    Opens an interactive web dashboard at <code>http://localhost:3333</code>:
+  </p>
+  <pre><code>lean-ctx dashboard
+lean-ctx dashboard --port=8080</code></pre>
+  <p>The dashboard includes:</p>
+  <ul>
+    <li><strong>5 KPI cards</strong> — Tokens Saved, Savings Rate, Total Commands, Days Active, Cost Saved</li>
+    <li><strong>5 interactive charts</strong> — Cumulative savings (area), daily rate (line), daily activity (stacked bar), top commands (horizontal bar), command distribution (doughnut)</li>
+    <li><strong>MCP vs Shell Hook breakdown</strong> — separate stats and badges for MCP tools (ctx_read etc.) and shell hook commands (git, npm etc.)</li>
+    <li><strong>Command table</strong> — all commands with count, input/output tokens, savings rate, and visual compression bars</li>
+    <li><strong>Daily history</strong> — last 30 days with activity bars</li>
+  </ul>
+
+  <h2>lean-ctx gain (CLI)</h2>
+  <p>
+    Quick terminal view of lifetime savings:
   </p>
   <pre><code>lean-ctx gain
 
-lean-ctx savings (all time)
+lean-ctx Token Savings
 ══════════════════════════════════════════════════
-Sessions: 47 | Total reads: 1,204 | Cache hits: 892 (74%)
-Tokens saved: 2.4M | Cost avoided: $36.12
+Total commands:  47
+Input tokens:    12.4K
+Output tokens:   4.8K
+Tokens saved:    7.6K (61.3%)
+Tracking since:  2026-03-23
+
+By Command:
 ──────────────────────────────────────────────────
-By Tool:
-  ctx_read        812    1.8M    92%
-  ctx_shell       284    480K    76%
-  ctx_tree        108     89K    41%</code></pre>
-  <p>
-    Every MCP session and shell hook invocation contributes to the cumulative stats automatically.
-    No configuration needed — stats tracking is built in.
-  </p>
+Command               Count      Saved   Avg%
+ctx_read                 18      5.2K  91.0%
+ls                       12      2.1K  74.1%
+ctx_shell                 8      1.4K  74.0%
+══════════════════════════════════════════════════</code></pre>
 
   <h2>ctx_metrics (Per-Session)</h2>
   <p>Call <code>ctx_metrics</code> at any point during an MCP session to see current savings:</p>

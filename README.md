@@ -132,7 +132,9 @@ lean-ctx deps .                          # Project dependencies summary
 
 ```bash
 lean-ctx init --global         # Install shell aliases (.zshrc/.bashrc/.config/fish)
-lean-ctx gain                  # Persistent token savings dashboard
+lean-ctx gain                  # Persistent token savings (CLI)
+lean-ctx dashboard             # Web dashboard at localhost:3333
+lean-ctx dashboard --port=8080 # Custom port
 lean-ctx --version             # Show version
 lean-ctx --help                # Full help
 ```
@@ -386,16 +388,28 @@ Or use the interactive shell:
 lean-ctx shell
 ```
 
-## Persistent Stats
+## Persistent Stats & Web Dashboard
 
-lean-ctx tracks all shell hook compressions in `~/.lean-ctx/stats.json`:
+lean-ctx tracks all compressions (both MCP tools and shell hook) in `~/.lean-ctx/stats.json`:
 
 - Per-command breakdown with token counts
+- MCP vs Shell Hook separation
 - Daily statistics (last 90 days)
 - Total lifetime savings
 - First/last use timestamps
 
-View anytime with `lean-ctx gain`.
+View in the terminal with `lean-ctx gain`, or open the web dashboard:
+
+```bash
+lean-ctx dashboard
+```
+
+Opens `http://localhost:3333` with:
+- 5 KPI cards (tokens saved, savings rate, commands, days active, cost saved)
+- 5 interactive charts (cumulative savings, daily rate, activity, top commands, distribution)
+- MCP vs Shell Hook breakdown
+- Command table with compression bars
+- Daily history
 
 ## lean-ctx vs RTK
 
@@ -412,7 +426,7 @@ View anytime with `lean-ctx gain`.
 | **Entropy analysis** | ✗ | ✓ Shannon entropy + Jaccard similarity |
 | **Cost tracking** | ✗ | ✓ USD estimates per session |
 | **Thinking reduction** | ✗ | ✓ CRP v2 (30-60% fewer thinking tokens via Cursor Rules) |
-| **Persistent stats** | ✓ `rtk gain` | ✓ `lean-ctx gain` |
+| **Persistent stats** | ✓ `rtk gain` | ✓ `lean-ctx gain` + web dashboard |
 | **Auto-setup** | ✓ `rtk init` | ✓ `lean-ctx init` |
 | **Editors** | Claude Code, OpenCode, Gemini CLI | **All MCP editors (Cursor, Copilot, Claude Code, Windsurf) + shell** |
 

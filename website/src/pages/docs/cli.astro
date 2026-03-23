@@ -30,17 +30,30 @@ lean-ctx init --global</code></pre>
   </p>
 
   <h3>gain</h3>
-  <p>Shows the persistent savings dashboard — cumulative token savings across all sessions. Stats are stored in <code>~/.lean-ctx/stats.json</code>.</p>
+  <p>Shows the persistent savings in the terminal — cumulative token savings across all sessions (MCP tools + shell hook). Stats are stored in <code>~/.lean-ctx/stats.json</code>.</p>
   <pre><code>lean-ctx gain</code></pre>
-  <pre><code>lean-ctx savings (all time)
+  <pre><code>lean-ctx Token Savings
 ══════════════════════════════════════════════════
-Sessions: 47 | Total reads: 1,204 | Cache hits: 892 (74%)
-Tokens saved: 2.4M | Cost avoided: $36.12
+Total commands:  47
+Input tokens:    12.4K
+Output tokens:   4.8K
+Tokens saved:    7.6K (61.3%)
+Tracking since:  2026-03-23
+
+By Command:
 ──────────────────────────────────────────────────
-By Tool:
-  ctx_read        812    1.8M    92%
-  ctx_shell       284    480K    76%
-  ctx_tree        108     89K    41%</code></pre>
+Command               Count      Saved   Avg%
+ctx_read                 18      5.2K  91.0%
+ls                       12      2.1K  74.1%
+ctx_shell                 8      1.4K  74.0%
+git status                8        680  39.9%
+══════════════════════════════════════════════════</code></pre>
+
+  <h3>dashboard</h3>
+  <p>Opens a web dashboard at <code>http://localhost:3333</code> with interactive charts, KPI cards, and detailed breakdowns of MCP vs Shell Hook usage.</p>
+  <pre><code>lean-ctx dashboard
+lean-ctx dashboard --port=8080</code></pre>
+  <p>Features: 5 KPI cards, 5 Chart.js graphs (cumulative savings, daily rate, activity, top commands, distribution), MCP vs Shell Hook separation, command table with compression bars, and daily history.</p>
 
   <h3>read</h3>
   <p>Read a file with lean-ctx compression directly from the terminal.</p>
