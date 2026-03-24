@@ -6,6 +6,8 @@ pub mod entropy;
 pub mod patterns;
 pub mod protocol;
 pub mod signatures;
+#[cfg(feature = "tree-sitter")]
+pub mod signatures_ts;
 pub mod stats;
 pub mod symbol_map;
 pub mod tokens;

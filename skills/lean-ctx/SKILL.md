@@ -6,7 +6,7 @@ metadata: {"openclaw": {"requires": {"bins": ["lean-ctx"]}, "install": [{"id": "
 
 # LeanCTX — Token Compression for Shell Commands
 
-LeanCTX is a Rust binary that compresses CLI output by 50-99% using 50+ command-specific patterns. It reduces the tokens you consume per shell command, keeping your context window lean and your costs low.
+LeanCTX is a Rust binary that compresses CLI output by 50-99% using 50+ command-specific patterns and extracts code signatures using tree-sitter AST parsing across 10 languages (TS/JS, Rust, Python, Go, Java, C, C++, Ruby). It reduces the tokens you consume per shell command, keeping your context window lean and your costs low.
 
 ## When to use lean-ctx
 
@@ -48,7 +48,7 @@ lean-ctx read <file> -m diff            # Only changed lines since last read
 ```
 
 Use `map` mode when you need to understand what a file does without reading every line.
-Use `signatures` mode when you need the API surface of a module.
+Use `signatures` mode when you need the API surface of a module (powered by tree-sitter for TS/JS, Rust, Python, Go, Java, C, C++, Ruby).
 Use `full` mode only when you will edit the file.
 
 ## Analytics

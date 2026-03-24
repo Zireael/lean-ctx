@@ -1,6 +1,6 @@
 [package]
 name = "lean-ctx"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 description = "Hybrid Context Optimizer with Token Dense Dialect (TDD). 50+ compression patterns, Shell Hook + MCP Server. Reduces LLM token consumption by 89-99%."
 license = "MIT"
@@ -14,6 +14,21 @@ exclude = ["examples/", "tests/"]
 [[bin]]
 name = "lean-ctx"
 path = "src/main.rs"
+
+[features]
+default = ["tree-sitter"]
+tree-sitter = [
+  "dep:tree-sitter",
+  "dep:tree-sitter-rust",
+  "dep:tree-sitter-typescript",
+  "dep:tree-sitter-javascript",
+  "dep:tree-sitter-python",
+  "dep:tree-sitter-go",
+  "dep:tree-sitter-java",
+  "dep:tree-sitter-c",
+  "dep:tree-sitter-cpp",
+  "dep:tree-sitter-ruby",
+]
 
 [dependencies]
 rmcp = { version = "1", features = ["server", "transport-io"] }
@@ -30,6 +45,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
+tree-sitter = { version = "0.26", optional = true }
+tree-sitter-rust = { version = "0.24", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-c = { version = "0.24", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-ruby = { version = "0.23", optional = true }
 
 [profile.release]
 opt-level = "z"

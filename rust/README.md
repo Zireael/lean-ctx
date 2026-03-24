@@ -1,6 +1,6 @@
 # lean-ctx
 
-**Hybrid Context Optimizer with Token Dense Dialect (TDD). Shell Hook + MCP Server. Single Rust binary, zero dependencies.**
+**Hybrid Context Optimizer with Token Dense Dialect (TDD). Shell Hook + MCP Server. tree-sitter AST parsing for 10 languages. Single Rust binary.**
 
 [![Crates.io](https://img.shields.io/crates/v/lean-ctx)](https://crates.io/crates/lean-ctx)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -490,7 +490,8 @@ Opens `http://localhost:3333` with:
 | **CLI compression** | ~30 commands | **50+ patterns** (git, npm, cargo, docker, gh, kubectl, pip, ruff, eslint, prettier, tsc, go, playwright, curl, wget, JSON, logs...) |
 | **File reading** | `rtk read` (signatures mode) | **6 modes: full (cached), map, signatures, diff, aggressive, entropy** |
 | **File caching** | ✗ | ✓ MD5 session cache (re-reads = ~13 tokens) |
-| **Dependency maps** | ✗ | ✓ import/export extraction (TS/JS/Rust/Python/Go) |
+| **Signature engine** | Line-by-line regex | **tree-sitter AST (10 languages)** |
+| **Dependency maps** | ✗ | ✓ import/export extraction (10 languages via tree-sitter) |
 | **Context checkpoints** | ✗ | ✓ `ctx_compress` for long conversations |
 | **Token counting** | Estimated | tiktoken-exact (o200k_base) |
 | **Entropy analysis** | ✗ | ✓ Shannon entropy + Jaccard similarity |
@@ -506,6 +507,25 @@ Opens `http://localhost:3333` with:
 | **Adoption tracking** | ✗ | ✓ `lean-ctx session` — adoption % |
 
 **Key difference**: RTK compresses CLI output only. lean-ctx compresses CLI output *and* file reads, search results, and project context through the MCP protocol — reaching 89-99% savings where RTK reaches 60-90%.
+
+## tree-sitter Signature Engine
+
+Since v1.5.0, lean-ctx uses [tree-sitter](https://tree-sitter.github.io/tree-sitter/) for AST-based signature extraction (enabled by default). This replaces the previous regex-based extractor with accurate parsing of multi-line signatures, arrow functions, and nested definitions.
+
+**10 languages supported**: TypeScript, JavaScript, Rust, Python, Go, Java, C, C++, Ruby
+
+| Capability | Regex (old) | tree-sitter (new) |
+|---|---|---|
+| Multi-line signatures | Missed | Fully parsed |
+| Arrow functions | Missed | Fully parsed |
+| Nested classes/methods | Heuristic | AST scope tracking |
+| Languages | 4 | **10** |
+
+Build without tree-sitter for a smaller binary (~5.7 MB vs ~17 MB):
+
+```bash
+cargo install lean-ctx --no-default-features
+```
 
 ## Uninstall
 

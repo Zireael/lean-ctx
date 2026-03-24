@@ -152,6 +152,13 @@ fn rust_impl_re() -> &'static Regex {
 }
 
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
+    #[cfg(feature = "tree-sitter")]
+    {
+        if let Some(sigs) = super::signatures_ts::extract_signatures_ts(content, file_ext) {
+            return sigs;
+        }
+    }
+
     match file_ext {
         "rs" => extract_rust_signatures(content),
         "ts" | "tsx" | "js" | "jsx" | "svelte" | "vue" => extract_ts_signatures(content),
@@ -368,7 +375,7 @@ fn extract_go_signatures(content: &str) -> Vec<Signature> {
     sigs
 }
 
-fn compact_params(params: &str) -> String {
+pub(crate) fn compact_params(params: &str) -> String {
     if params.trim().is_empty() {
         return String::new();
     }

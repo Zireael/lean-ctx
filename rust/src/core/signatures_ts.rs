@@ -1,0 +1,890 @@
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator};
+
+use super::signatures::Signature;
+
+const QUERY_RUST: &str = r#"
+(function_item name: (identifier) @name) @def
+(struct_item name: (type_identifier) @name) @def
+(enum_item name: (type_identifier) @name) @def
+(trait_item name: (type_identifier) @name) @def
+(impl_item type: (type_identifier) @name) @def
+(type_item name: (type_identifier) @name) @def
+(const_item name: (identifier) @name) @def
+"#;
+
+const QUERY_TYPESCRIPT: &str = r#"
+(function_declaration name: (identifier) @name) @def
+(class_declaration name: (type_identifier) @name) @def
+(abstract_class_declaration name: (type_identifier) @name) @def
+(interface_declaration name: (type_identifier) @name) @def
+(type_alias_declaration name: (type_identifier) @name) @def
+(method_definition name: (property_identifier) @name) @def
+(variable_declarator name: (identifier) @name value: (arrow_function)) @def
+"#;
+
+const QUERY_JAVASCRIPT: &str = r#"
+(function_declaration name: (identifier) @name) @def
+(class_declaration name: (identifier) @name) @def
+(method_definition name: (property_identifier) @name) @def
+(variable_declarator name: (identifier) @name value: (arrow_function)) @def
+"#;
+
+const QUERY_PYTHON: &str = r#"
+(function_definition name: (identifier) @name) @def
+(class_definition name: (identifier) @name) @def
+"#;
+
+const QUERY_GO: &str = r#"
+(function_declaration name: (identifier) @name) @def
+(method_declaration name: (field_identifier) @name) @def
+(type_spec name: (type_identifier) @name) @def
+"#;
+
+const QUERY_JAVA: &str = r#"
+(method_declaration name: (identifier) @name) @def
+(class_declaration name: (identifier) @name) @def
+(interface_declaration name: (identifier) @name) @def
+(enum_declaration name: (identifier) @name) @def
+(constructor_declaration name: (identifier) @name) @def
+"#;
+
+const QUERY_C: &str = r#"
+(function_definition
+  declarator: (function_declarator
+    declarator: (identifier) @name)) @def
+(struct_specifier name: (type_identifier) @name) @def
+(enum_specifier name: (type_identifier) @name) @def
+(type_definition declarator: (type_identifier) @name) @def
+"#;
+
+const QUERY_CPP: &str = r#"
+(function_definition
+  declarator: (function_declarator
+    declarator: (_) @name)) @def
+(struct_specifier name: (type_identifier) @name) @def
+(class_specifier name: (type_identifier) @name) @def
+(enum_specifier name: (type_identifier) @name) @def
+(namespace_definition name: (identifier) @name) @def
+"#;
+
+const QUERY_RUBY: &str = r#"
+(method name: (identifier) @name) @def
+(singleton_method name: (identifier) @name) @def
+(class name: (_) @name) @def
+(module name: (_) @name) @def
+"#;
+
+pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signature>> {
+    let language = get_language(file_ext)?;
+    let query_src = get_query(file_ext)?;
+
+    let mut parser = Parser::new();
+    parser.set_language(&language).ok()?;
+    let tree = parser.parse(content, None)?;
+    let query = Query::new(&language, query_src).ok()?;
+
+    let def_idx = find_capture_index(&query, "def")?;
+    let name_idx = find_capture_index(&query, "name")?;
+
+    let source = content.as_bytes();
+    let mut sigs = Vec::new();
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&query, tree.root_node(), source);
+
+    while let Some(m) = matches.next() {
+        let mut def_node: Option<Node> = None;
+        let mut name_text = String::new();
+
+        for cap in m.captures.iter() {
+            if cap.index == def_idx {
+                def_node = Some(cap.node);
+            } else if cap.index == name_idx {
+                if let Ok(text) = cap.node.utf8_text(source) {
+                    name_text = text.to_string();
+                }
+            }
+        }
+
+        if let Some(node) = def_node {
+            if !name_text.is_empty() {
+                if let Some(sig) = node_to_signature(&node, &name_text, file_ext, source) {
+                    sigs.push(sig);
+                }
+            }
+        }
+    }
+
+    Some(sigs)
+}
+
+fn get_language(ext: &str) -> Option<Language> {
+    Some(match ext {
+        "rs" => tree_sitter_rust::LANGUAGE.into(),
+        "ts" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        "js" | "jsx" => tree_sitter_javascript::LANGUAGE.into(),
+        "py" => tree_sitter_python::LANGUAGE.into(),
+        "go" => tree_sitter_go::LANGUAGE.into(),
+        "java" => tree_sitter_java::LANGUAGE.into(),
+        "c" | "h" => tree_sitter_c::LANGUAGE.into(),
+        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => tree_sitter_cpp::LANGUAGE.into(),
+        "rb" => tree_sitter_ruby::LANGUAGE.into(),
+        _ => return None,
+    })
+}
+
+fn get_query(ext: &str) -> Option<&'static str> {
+    Some(match ext {
+        "rs" => QUERY_RUST,
+        "ts" | "tsx" => QUERY_TYPESCRIPT,
+        "js" | "jsx" => QUERY_JAVASCRIPT,
+        "py" => QUERY_PYTHON,
+        "go" => QUERY_GO,
+        "java" => QUERY_JAVA,
+        "c" | "h" => QUERY_C,
+        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" => QUERY_CPP,
+        "rb" => QUERY_RUBY,
+        _ => return None,
+    })
+}
+
+fn find_capture_index(query: &Query, name: &str) -> Option<u32> {
+    query
+        .capture_names()
+        .iter()
+        .position(|n| *n == name)
+        .map(|i| i as u32)
+}
+
+fn node_to_signature(node: &Node, name: &str, ext: &str, source: &[u8]) -> Option<Signature> {
+    let kind_str = node.kind();
+    let start_col = node.start_position().column;
+
+    match kind_str {
+        "function_item" => rust_function(node, name, source),
+        "struct_item" => rust_struct_like(node, name, "struct"),
+        "enum_item" => rust_struct_like(node, name, "enum"),
+        "trait_item" => rust_struct_like(node, name, "trait"),
+        "impl_item" => rust_impl(node, name, source),
+        "type_item" => rust_struct_like(node, name, "type"),
+        "const_item" => rust_const(node, name, source),
+
+        "function_declaration" => ts_or_go_function(node, name, ext, source),
+        "function_definition" => py_or_c_function(node, name, ext, start_col, source),
+        "method_definition" => ts_method(node, name, source),
+        "method_declaration" => go_or_java_method(node, name, ext, source),
+        "variable_declarator" => ts_arrow_function(node, name, source),
+
+        "class_declaration" | "abstract_class_declaration" | "class_specifier" => {
+            class_like(node, name, "class", ext, source)
+        }
+        "class_definition" => Some(Signature {
+            kind: "class",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: !name.starts_with('_'),
+            indent: 0,
+        }),
+        "class" | "module" => Some(Signature {
+            kind: "class",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: true,
+            indent: 0,
+        }),
+
+        "struct_specifier" => simple_def(name, "struct"),
+        "interface_declaration" => class_like(node, name, "interface", ext, source),
+        "type_alias_declaration" => Some(Signature {
+            kind: "type",
+            name: name.to_string(),
+            params: String::new(),
+            return_type: String::new(),
+            is_async: false,
+            is_exported: is_in_export(node),
+            indent: 0,
+        }),
+        "type_definition" => simple_def(name, "type"),
+        "namespace_definition" => simple_def(name, "class"),
+
+        "enum_declaration" | "enum_specifier" => {
+            let exported = match ext {
+                "java" => has_modifier(node, "public", source),
+                _ => true,
+            };
+            Some(Signature {
+                kind: "enum",
+                name: name.to_string(),
+                params: String::new(),
+                return_type: String::new(),
+                is_async: false,
+                is_exported: exported,
+                indent: 0,
+            })
+        }
+
+        "type_spec" => go_type_spec(node, name, source),
+
+        "method" | "singleton_method" => ruby_method(node, name, source),
+        "constructor_declaration" => java_constructor(node, name, source),
+
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rust handlers
+// ---------------------------------------------------------------------------
+
+fn rust_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    let ret = field_text(node, "return_type", source);
+    let exported = has_named_child(node, "visibility_modifier");
+    let is_async = has_keyword_child(node, "async");
+    let start_col = node.start_position().column;
+    let is_method = start_col > 0;
+
+    Some(Signature {
+        kind: if is_method { "method" } else { "fn" },
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async,
+        is_exported: exported,
+        indent: if is_method { 2 } else { 0 },
+    })
+}
+
+fn rust_struct_like(node: &Node, name: &str, kind: &'static str) -> Option<Signature> {
+    Some(Signature {
+        kind,
+        name: name.to_string(),
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: has_named_child(node, "visibility_modifier"),
+        indent: 0,
+    })
+}
+
+fn rust_impl(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let trait_name = node
+        .child_by_field_name("trait")
+        .and_then(|n| n.utf8_text(source).ok())
+        .map(|s| s.to_string());
+    let full_name = match trait_name {
+        Some(t) => format!("{t} for {name}"),
+        None => name.to_string(),
+    };
+    Some(Signature {
+        kind: "class",
+        name: full_name,
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: false,
+        indent: 0,
+    })
+}
+
+fn rust_const(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let ret = field_text(node, "type", source);
+    Some(Signature {
+        kind: "const",
+        name: name.to_string(),
+        params: String::new(),
+        return_type: clean_return_type(&ret),
+        is_async: false,
+        is_exported: has_named_child(node, "visibility_modifier"),
+        indent: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// TypeScript / JavaScript handlers
+// ---------------------------------------------------------------------------
+
+fn ts_or_go_function(node: &Node, name: &str, ext: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    let (ret, exported, is_async) = match ext {
+        "go" => (
+            field_text(node, "result", source),
+            name.starts_with(|c: char| c.is_uppercase()),
+            false,
+        ),
+        _ => (
+            field_text(node, "return_type", source),
+            is_in_export(node),
+            has_keyword_child(node, "async"),
+        ),
+    };
+
+    Some(Signature {
+        kind: "fn",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async,
+        is_exported: exported,
+        indent: 0,
+    })
+}
+
+fn ts_method(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    let ret = field_text(node, "return_type", source);
+
+    Some(Signature {
+        kind: "method",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async: has_keyword_child(node, "async"),
+        is_exported: false,
+        indent: 2,
+    })
+}
+
+fn ts_arrow_function(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let arrow = node.child_by_field_name("value")?;
+    let params = field_text(&arrow, "parameters", source);
+    let ret = field_text(&arrow, "return_type", source);
+    let exported = node
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|gp| gp.kind() == "export_statement")
+        .unwrap_or(false);
+
+    Some(Signature {
+        kind: "fn",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: clean_return_type(&ret),
+        is_async: has_keyword_child(&arrow, "async"),
+        is_exported: exported,
+        indent: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Python / C / C++ handlers
+// ---------------------------------------------------------------------------
+
+fn py_or_c_function(
+    node: &Node,
+    name: &str,
+    ext: &str,
+    start_col: usize,
+    source: &[u8],
+) -> Option<Signature> {
+    match ext {
+        "py" => {
+            let params = field_text(node, "parameters", source);
+            let ret = field_text(node, "return_type", source);
+            let is_method = start_col > 0;
+            Some(Signature {
+                kind: if is_method { "method" } else { "fn" },
+                name: name.to_string(),
+                params: super::signatures::compact_params(&strip_parens(&params)),
+                return_type: clean_return_type(&ret),
+                is_async: has_keyword_child(node, "async"),
+                is_exported: !name.starts_with('_'),
+                indent: if is_method { 2 } else { 0 },
+            })
+        }
+        _ => {
+            let ret = field_text(node, "type", source);
+            let params = node
+                .child_by_field_name("declarator")
+                .and_then(|d| d.child_by_field_name("parameters"))
+                .and_then(|p| p.utf8_text(source).ok())
+                .unwrap_or("")
+                .to_string();
+            Some(Signature {
+                kind: "fn",
+                name: name.to_string(),
+                params: super::signatures::compact_params(&strip_parens(&params)),
+                return_type: ret.trim().to_string(),
+                is_async: false,
+                is_exported: true,
+                indent: 0,
+            })
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Go / Java handlers
+// ---------------------------------------------------------------------------
+
+fn go_or_java_method(node: &Node, name: &str, ext: &str, source: &[u8]) -> Option<Signature> {
+    match ext {
+        "go" => {
+            let params = field_text(node, "parameters", source);
+            let ret = field_text(node, "result", source);
+            Some(Signature {
+                kind: "method",
+                name: name.to_string(),
+                params: super::signatures::compact_params(&strip_parens(&params)),
+                return_type: clean_return_type(&ret),
+                is_async: false,
+                is_exported: name.starts_with(|c: char| c.is_uppercase()),
+                indent: 2,
+            })
+        }
+        "java" => {
+            let params = field_text(node, "parameters", source);
+            let ret = field_text(node, "type", source);
+            let is_method = node.start_position().column > 0;
+            Some(Signature {
+                kind: if is_method { "method" } else { "fn" },
+                name: name.to_string(),
+                params: super::signatures::compact_params(&strip_parens(&params)),
+                return_type: ret.trim().to_string(),
+                is_async: false,
+                is_exported: has_modifier(node, "public", source),
+                indent: if is_method { 2 } else { 0 },
+            })
+        }
+        _ => None,
+    }
+}
+
+fn go_type_spec(node: &Node, name: &str, _source: &[u8]) -> Option<Signature> {
+    let type_kind = node
+        .child_by_field_name("type")
+        .map(|n| n.kind().to_string())
+        .unwrap_or_default();
+    let kind = match type_kind.as_str() {
+        "struct_type" => "struct",
+        "interface_type" => "interface",
+        _ => "type",
+    };
+    Some(Signature {
+        kind,
+        name: name.to_string(),
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: name.starts_with(|c: char| c.is_uppercase()),
+        indent: 0,
+    })
+}
+
+fn java_constructor(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    Some(Signature {
+        kind: "fn",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: has_modifier(node, "public", source),
+        indent: 2,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Ruby handler
+// ---------------------------------------------------------------------------
+
+fn ruby_method(node: &Node, name: &str, source: &[u8]) -> Option<Signature> {
+    let params = field_text(node, "parameters", source);
+    Some(Signature {
+        kind: "method",
+        name: name.to_string(),
+        params: super::signatures::compact_params(&strip_parens(&params)),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: true,
+        indent: 2,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+fn class_like(
+    node: &Node,
+    name: &str,
+    kind: &'static str,
+    ext: &str,
+    source: &[u8],
+) -> Option<Signature> {
+    let exported = match ext {
+        "ts" | "tsx" | "js" | "jsx" => is_in_export(node),
+        "java" => has_modifier(node, "public", source),
+        _ => true,
+    };
+    Some(Signature {
+        kind,
+        name: name.to_string(),
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: exported,
+        indent: 0,
+    })
+}
+
+fn simple_def(name: &str, kind: &'static str) -> Option<Signature> {
+    Some(Signature {
+        kind,
+        name: name.to_string(),
+        params: String::new(),
+        return_type: String::new(),
+        is_async: false,
+        is_exported: true,
+        indent: 0,
+    })
+}
+
+fn field_text(node: &Node, field: &str, source: &[u8]) -> String {
+    node.child_by_field_name(field)
+        .and_then(|n| n.utf8_text(source).ok())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn strip_parens(s: &str) -> String {
+    let s = s.trim();
+    let s = s.strip_prefix('(').unwrap_or(s);
+    let s = s.strip_suffix(')').unwrap_or(s);
+    s.to_string()
+}
+
+fn clean_return_type(ret: &str) -> String {
+    let ret = ret.trim();
+    if ret.is_empty() {
+        return String::new();
+    }
+    let ret = ret.strip_prefix("->").unwrap_or(ret).trim();
+    let ret = ret.strip_prefix(':').unwrap_or(ret).trim();
+    ret.to_string()
+}
+
+fn has_named_child(node: &Node, kind: &str) -> bool {
+    let mut cursor = node.walk();
+    let result = node.children(&mut cursor).any(|c| c.kind() == kind);
+    result
+}
+
+fn has_keyword_child(node: &Node, keyword: &str) -> bool {
+    let mut cursor = node.walk();
+    let result = node
+        .children(&mut cursor)
+        .any(|c| !c.is_named() && c.kind() == keyword);
+    result
+}
+
+fn is_in_export(node: &Node) -> bool {
+    node.parent()
+        .map(|p| p.kind() == "export_statement")
+        .unwrap_or(false)
+}
+
+fn has_modifier(node: &Node, modifier: &str, source: &[u8]) -> bool {
+    node.child_by_field_name("modifiers")
+        .and_then(|m| m.utf8_text(source).ok())
+        .map(|t| t.contains(modifier))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rust_signatures() {
+        let src = r#"
+pub struct Config {
+    name: String,
+}
+
+pub enum Status {
+    Active,
+    Inactive,
+}
+
+pub trait Handler {
+    fn handle(&self);
+}
+
+impl Handler for Config {
+    fn handle(&self) {
+        println!("handling");
+    }
+}
+
+pub async fn process(input: &str) -> Result<String, Error> {
+    Ok(input.to_string())
+}
+
+fn helper(x: i32) -> bool {
+    x > 0
+}
+"#;
+        let sigs = extract_signatures_ts(src, "rs").unwrap();
+        assert!(sigs.len() >= 5, "expected >=5 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Config"));
+        assert!(names.contains(&"Status"));
+        assert!(names.contains(&"Handler"));
+        assert!(names.contains(&"process"));
+        assert!(names.contains(&"helper"));
+    }
+
+    #[test]
+    fn test_typescript_signatures() {
+        let src = r#"
+export function greet(name: string): string {
+    return `Hello ${name}`;
+}
+
+export class UserService {
+    async findUser(id: number): Promise<User> {
+        return db.find(id);
+    }
+}
+
+export interface Config {
+    host: string;
+    port: number;
+}
+
+export type UserId = string;
+
+const handler = async (req: Request): Promise<Response> => {
+    return new Response();
+};
+"#;
+        let sigs = extract_signatures_ts(src, "ts").unwrap();
+        assert!(sigs.len() >= 5, "expected >=5 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"greet"));
+        assert!(names.contains(&"UserService"));
+        assert!(names.contains(&"Config"));
+        assert!(names.contains(&"UserId"));
+        assert!(names.contains(&"handler"));
+    }
+
+    #[test]
+    fn test_python_signatures() {
+        let src = r#"
+class AuthService:
+    def __init__(self, db):
+        self.db = db
+
+    async def authenticate(self, email: str, password: str) -> bool:
+        user = await self.db.find(email)
+        return check(user, password)
+
+def create_app() -> Flask:
+    return Flask(__name__)
+
+def _internal_helper(x):
+    return x * 2
+"#;
+        let sigs = extract_signatures_ts(src, "py").unwrap();
+        assert!(sigs.len() >= 4, "expected >=4 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"AuthService"));
+        assert!(names.contains(&"authenticate"));
+        assert!(names.contains(&"create_app"));
+
+        let auth = sigs.iter().find(|s| s.name == "authenticate").unwrap();
+        assert!(auth.is_async);
+        assert_eq!(auth.kind, "method");
+
+        let helper = sigs.iter().find(|s| s.name == "_internal_helper").unwrap();
+        assert!(!helper.is_exported);
+    }
+
+    #[test]
+    fn test_go_signatures() {
+        let src = r#"
+package main
+
+type Config struct {
+    Host string
+    Port int
+}
+
+type Handler interface {
+    Handle() error
+}
+
+func NewConfig(host string, port int) *Config {
+    return &Config{Host: host, Port: port}
+}
+
+func (c *Config) Validate() error {
+    return nil
+}
+
+func helper() {
+}
+"#;
+        let sigs = extract_signatures_ts(src, "go").unwrap();
+        assert!(sigs.len() >= 4, "expected >=4 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"Config"));
+        assert!(names.contains(&"Handler"));
+        assert!(names.contains(&"NewConfig"));
+        assert!(names.contains(&"Validate"));
+
+        let nc = sigs.iter().find(|s| s.name == "NewConfig").unwrap();
+        assert!(nc.is_exported);
+
+        let h = sigs.iter().find(|s| s.name == "helper").unwrap();
+        assert!(!h.is_exported);
+    }
+
+    #[test]
+    fn test_java_signatures() {
+        let src = r#"
+public class UserController {
+    public UserController(UserService service) {
+        this.service = service;
+    }
+
+    public User getUser(int id) {
+        return service.findById(id);
+    }
+
+    private void validate(User user) {
+        // validation logic
+    }
+}
+
+public interface Repository {
+    User findById(int id);
+}
+
+public enum Role {
+    ADMIN,
+    USER
+}
+"#;
+        let sigs = extract_signatures_ts(src, "java").unwrap();
+        assert!(sigs.len() >= 4, "expected >=4 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"UserController"));
+        assert!(names.contains(&"getUser"));
+        assert!(names.contains(&"Repository"));
+        assert!(names.contains(&"Role"));
+    }
+
+    #[test]
+    fn test_c_signatures() {
+        let src = r#"
+typedef unsigned int uint;
+
+struct Config {
+    char* host;
+    int port;
+};
+
+enum Status {
+    ACTIVE,
+    INACTIVE
+};
+
+int process(const char* input, int len) {
+    return 0;
+}
+
+void cleanup(struct Config* cfg) {
+    free(cfg);
+}
+"#;
+        let sigs = extract_signatures_ts(src, "c").unwrap();
+        assert!(sigs.len() >= 3, "expected >=3 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"process"));
+        assert!(names.contains(&"cleanup"));
+    }
+
+    #[test]
+    fn test_ruby_signatures() {
+        let src = r#"
+module Authentication
+  class UserService
+    def initialize(db)
+      @db = db
+    end
+
+    def authenticate(email, password)
+      user = @db.find(email)
+      user&.check(password)
+    end
+
+    def self.create(config)
+      new(config[:db])
+    end
+  end
+end
+"#;
+        let sigs = extract_signatures_ts(src, "rb").unwrap();
+        assert!(sigs.len() >= 3, "expected >=3 sigs, got {}", sigs.len());
+
+        let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"UserService"));
+        assert!(names.contains(&"authenticate"));
+    }
+
+    #[test]
+    fn test_multiline_rust_signature() {
+        let src = r#"
+pub fn complex_function<T: Display + Debug>(
+    first_arg: &str,
+    second_arg: Vec<T>,
+    third_arg: Option<HashMap<String, Vec<u8>>>,
+) -> Result<(), Box<dyn Error>> {
+    Ok(())
+}
+"#;
+        let sigs = extract_signatures_ts(src, "rs").unwrap();
+        assert!(!sigs.is_empty(), "should parse multiline function");
+        assert_eq!(sigs[0].name, "complex_function");
+        assert!(sigs[0].is_exported);
+    }
+
+    #[test]
+    fn test_arrow_function_ts() {
+        let src = r#"
+export const fetchData = async (url: string): Promise<Response> => {
+    return fetch(url);
+};
+
+const internal = (x: number) => x * 2;
+"#;
+        let sigs = extract_signatures_ts(src, "ts").unwrap();
+        assert!(sigs.len() >= 2, "expected >=2 sigs, got {}", sigs.len());
+
+        let fetch = sigs.iter().find(|s| s.name == "fetchData").unwrap();
+        assert!(fetch.is_async);
+        assert!(fetch.is_exported);
+        assert_eq!(fetch.kind, "fn");
+
+        let internal = sigs.iter().find(|s| s.name == "internal").unwrap();
+        assert!(!internal.is_exported);
+    }
+
+    #[test]
+    fn test_unsupported_extension_returns_none() {
+        let sigs = extract_signatures_ts("some content", "xyz");
+        assert!(sigs.is_none());
+    }
+}
