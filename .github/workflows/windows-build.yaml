@@ -30,16 +30,18 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # Build jemalloc manually.  Must use --single-branch (not --depth 1)
-      # because git shallow-clone + tag has a bug where the worktree stays
-      # empty.
+      # Build jemalloc from the RELEASE TARBALL (the git tag 5.3.0 lacks the
+      # generated configure script — only configure.ac is committed).
       - name: Build jemalloc from source
         shell: msys2 {0}
         run: |
           set -eux
-          git clone --branch 5.3.0 --single-branch \
-            https://github.com/jemalloc/jemalloc.git /tmp/jemalloc-build
+          curl -fsSL https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2 \
+            -o /tmp/jemalloc.tar.bz2
+          mkdir -p /tmp/jemalloc-build
+          tar -xf /tmp/jemalloc.tar.bz2 -C /tmp/jemalloc-build --strip-components=1
           cd /tmp/jemalloc-build
+          # Patch config.sub for MSYS2's build triple (win32*)
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
           ./configure --host=x86_64-w64-mingw32 \
                       --disable-cxx --enable-shared=no \
@@ -48,14 +50,14 @@ jobs:
           make install_lib_static install_include
           ls -la /tmp/jemalloc-prefix/lib/
 
-      # Build lean-ctx with jemalloc feature enabled.
-      # Provide dummy liballoc.a alongside libjemalloc.a for -lalloc.
+      # Build lean-ctx with jemalloc.
+      # Dummy liballoc.a alongside libjemalloc.a satisfies -lalloc linker flag.
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
         run: |
           set -eux
-          # Dummy liballoc.a satisfies -lalloc (real symbols from .rlib)
+          # Dummy liballoc.a for -lalloc (real symbols from .rlib)
           mkdir -p /tmp/jemalloc-prefix/lib
           printf 'void __dummy_alloc_ignore(void) {}\n' | \
             gcc -xc -c - -o /tmp/jemalloc-prefix/lib/dummy.o
