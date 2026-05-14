@@ -31,28 +31,33 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       # Build jemalloc from release tarball (git tag lacks generated configure)
+      # Must match the exact configure flags tikv-jemalloc-sys uses:
+      #   --with-jemalloc-prefix=_rjem_ (tikv-jemallocator expects _rjem_malloc etc.)
+      #   --with-private-namespace=_rjem_
       - name: Build jemalloc from source
         shell: msys2 {0}
         run: |
           set -eux
           curl -fsSL https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2 \
             -o /tmp/jemalloc.tar.bz2
-          mkdir -p /tmp/jemalloc-build /tmp/jemalloc-prefix/lib
           tar -xf /tmp/jemalloc.tar.bz2 -C /tmp/jemalloc-build --strip-components=1
           cd /tmp/jemalloc-build
+          # Patch config.sub for MSYS2's build triple (win32*)
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
           ./configure --host=x86_64-w64-mingw32 \
                       --disable-cxx --enable-shared=no \
+                      --with-jemalloc-prefix=_rjem_ \
+                      --with-private-namespace=_rjem_ \
                       --prefix=/tmp/jemalloc-prefix
           make -j$(nproc)
           make install_lib_static install_include
           ls -la /tmp/jemalloc-prefix/lib/
           # On MinGW, jemalloc installs as jemalloc_s.lib (not libjemalloc.a).
-          # Rename to the expected format that JEMALLOC_OVERRIDE needs.
+          # Rename to the expected format for JEMALLOC_OVERRIDE.
           cp /tmp/jemalloc-prefix/lib/jemalloc_s.lib \
              /tmp/jemalloc-prefix/lib/libjemalloc.a
 
-      # Build lean-ctx with jemalloc + dummy liballoc.a for -lalloc linker flag
+      # Build lean-ctx with jemalloc + dummy liballoc.a for -lalloc
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
