@@ -30,14 +30,14 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # Build jemalloc from RELEASE TARBALL (git tag lacks generated configure)
+      # Build jemalloc from release tarball (git tag lacks generated configure)
       - name: Build jemalloc from source
         shell: msys2 {0}
         run: |
           set -eux
           curl -fsSL https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2 \
             -o /tmp/jemalloc.tar.bz2
-          mkdir -p /tmp/jemalloc-build
+          mkdir -p /tmp/jemalloc-build /tmp/jemalloc-prefix/lib
           tar -xf /tmp/jemalloc.tar.bz2 -C /tmp/jemalloc-build --strip-components=1
           cd /tmp/jemalloc-build
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
@@ -47,39 +47,33 @@ jobs:
           make -j$(nproc)
           make install_lib_static install_include
           ls -la /tmp/jemalloc-prefix/lib/
+          # On MinGW, jemalloc installs as jemalloc_s.lib (not libjemalloc.a).
+          # Rename to the expected format that JEMALLOC_OVERRIDE needs.
+          cp /tmp/jemalloc-prefix/lib/jemalloc_s.lib \
+             /tmp/jemalloc-prefix/lib/libjemalloc.a
 
-      # Build lean-ctx with jemalloc + dummy liballoc.a for -lalloc
+      # Build lean-ctx with jemalloc + dummy liballoc.a for -lalloc linker flag
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
         run: |
           set -eux
 
-          # Verify the jemalloc lib exists at both path formats
-          JEMALLOC_PATH=/tmp/jemalloc-prefix/lib/libjemalloc.a
-          JEMALLOC_WIN=$(cygpath -w "$JEMALLOC_PATH")
-          echo "MSYS2 path: $JEMALLOC_PATH"
-          echo "Windows path: $JEMALLOC_WIN"
-          ls -la "$JEMALLOC_PATH"
+          # Verify jemalloc lib exists
+          ls -la /tmp/jemalloc-prefix/lib/libjemalloc.a
 
           # Dummy liballoc.a for -lalloc (real symbols from .rlib)
-          mkdir -p /tmp/jemalloc-prefix/lib
-          cd /tmp/jemalloc-prefix/lib
           printf 'void __dummy_alloc_ignore(void) {}\n' | \
-            gcc -xc -c - -o dummy.o
-          ar crs liballoc.a dummy.o
-          rm -f dummy.o
-          cd -
+            gcc -xc -c - -o /tmp/jemalloc-prefix/lib/dummy.o
+          ar crs /tmp/jemalloc-prefix/lib/liballoc.a \
+                /tmp/jemalloc-prefix/lib/dummy.o
+          rm -f /tmp/jemalloc-prefix/lib/dummy.o
 
+          JEMALLOC_A=$(cygpath -w /tmp/jemalloc-prefix/lib/libjemalloc.a)
           DUMMY_DIR=$(cygpath -w /tmp/jemalloc-prefix/lib)
 
-          # Use the Windows-native path (backslashes) for JEMALLOC_OVERRIDE
-          # because the build script runs as a native Rust process
-          export JEMALLOC_OVERRIDE="$JEMALLOC_WIN"
+          export JEMALLOC_OVERRIDE="$JEMALLOC_A"
           export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L $DUMMY_DIR"
-
-          echo "JEMALLOC_OVERRIDE=$JEMALLOC_OVERRIDE"
-          echo "RUSTFLAGS=$CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS"
 
           cargo build --release --target x86_64-pc-windows-gnu
 
