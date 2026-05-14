@@ -61,13 +61,12 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
+            JEMALLOC_OVERRIDE="${{ steps.jemalloc.outputs.jemalloc-override }}" \
+            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L ${{ steps.jemalloc.outputs.dummy-dir }}" \
             cargo test --lib --target x86_64-pc-windows-gnu --all-features -- --test-threads=1
           else
             cargo test --all-features -- --test-threads=1
           fi
-        env:
-          JEMALLOC_OVERRIDE: ${{ steps.jemalloc.outputs.jemalloc-override }}
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -L ${{ steps.jemalloc.outputs.dummy-dir }}
 
   clippy:
     name: Clippy
