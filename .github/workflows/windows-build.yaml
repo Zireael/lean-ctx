@@ -20,9 +20,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          # Installs the actual gcc, binutils, and make required by jemalloc
           install: base-devel mingw-w64-x86_64-toolchain
-          # Inherits the Windows PATH so MSYS2 can find the rustup/cargo binaries
           path-type: inherit
 
       # 2. Setup Rust for the GNU target
@@ -31,17 +29,22 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # 3. Build inside MSYS2 bash, with a known BUILD triple so jemalloc's
-      #    bundled config.sub can validate it (MSYS2's config.guess returns
-      #    x86_64-pc-win32 which jemalloc 5.3 does not recognise).
+      # 3. Prepare patched jemalloc (config.sub doesn't know x86_64-pc-win32)
+      - name: Prepare patched jemalloc
+        shell: msys2 {0}
+        run: |
+          git clone --depth 1 --branch 5.3.0 https://github.com/jemalloc/jemalloc.git /tmp/jemalloc
+          sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' /tmp/jemalloc/build-aux/config.sub
+
+      # 4. Build with patched jemalloc
       - name: Build Release Binaries
         working-directory: rust
         shell: msys2 {0}
         env:
-          BUILD: x86_64-w64-mingw32
+          JEMALLOC_OVERRIDE: /tmp/jemalloc
         run: cargo build --release --target x86_64-pc-windows-gnu
 
-      # 4. Zip and provide the download
+      # 5. Upload compiled binaries
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
