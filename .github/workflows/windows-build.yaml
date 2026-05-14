@@ -32,50 +32,31 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # 3. Build jemalloc 5.3.0 manually, out-of-tree.
-      #    The tikv-jemalloc-sys build script's configure step uses
-      #    --build=x86_64-pc-win32 (from HOST=x86_64-pc-windows-msvc), which
-      #    jemalloc's config.sub rejects.  By pre-building jemalloc we bypass
-      #    the build script's autotools step entirely and point it at the
-      #    ready-made .a via JEMALLOC_OVERRIDE.
-      - name: Build jemalloc from source
-        shell: msys2 {0}
-        run: |
-          git clone --depth 1 --branch 5.3.0 https://github.com/jemalloc/jemalloc.git /tmp/jemalloc-build
-          cd /tmp/jemalloc-build
-          # Patch config.sub for MSYS2's build triple
-          sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
-          ./configure --host=x86_64-w64-mingw32 \
-                      --disable-cxx --enable-shared=no \
-                      --prefix=/tmp/jemalloc-prefix
-          make -j$(nproc)
-          make install_lib_static install_include
-          ls -la /tmp/jemalloc-prefix/lib/
-
-      # 4. Build lean-ctx with jemalloc feature enabled.
-      #    The final link on windows-gnu emits -lalloc (from Rust compiler when
-      #    #[global_allocator] is used).  The alloc crate ships as .rlib only,
-      #    so we provide a dummy liballoc.a alongside libjemalloc.a.
+      # 3. Build lean-ctx with jemalloc feature enabled.
+      #    HACK: Override HOST env var so tikv-jemalloc-sys's build script
+      #    passes --build=x86_64-w64-mingw32 (instead of x86_64-pc-win32 from
+      #    the default MSVC host).  x86_64-w64-mingw32 is recognised by
+      #    jemalloc's config.sub without any patching.
+      #    Also create a dummy liballoc.a to satisfy the -lalloc linker flag
+      #    that Rust emits when #[global_allocator] is used on this target.
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
+        env:
+          HOST: x86_64-pc-windows-gnu
         run: |
-          # Dummy liballoc.a satisfies -lalloc (real symbols from .rlib)
+          # Dummy liballoc.a to satisfy -lalloc (real symbols from .rlib)
+          mkdir -p /tmp/jemalloc-helper/lib
           printf 'void __dummy_alloc_ignore(void) {}\n' | \
-            gcc -xc -c - -o /tmp/jemalloc-prefix/lib/dummy.o
-          ar crs /tmp/jemalloc-prefix/lib/liballoc.a \
-                /tmp/jemalloc-prefix/lib/dummy.o
-          rm -f /tmp/jemalloc-prefix/lib/dummy.o
+            gcc -xc -c - -o /tmp/jemalloc-helper/lib/dummy.o
+          ar crs /tmp/jemalloc-helper/lib/liballoc.a \
+                /tmp/jemalloc-helper/lib/dummy.o
+          rm -f /tmp/jemalloc-helper/lib/dummy.o
 
-          JEMALLOC_A=$(cygpath -m /tmp/jemalloc-prefix/lib/libjemalloc.a)
-          DUMMY_DIR=$(cygpath -m /tmp/jemalloc-prefix/lib)
-
-          export JEMALLOC_OVERRIDE="$JEMALLOC_A"
-          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L $DUMMY_DIR"
-
+          export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS="-L $(cygpath -m /tmp/jemalloc-helper/lib)"
           cargo build --release --target x86_64-pc-windows-gnu
 
-      # 5. Upload
+      # 4. Upload
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
