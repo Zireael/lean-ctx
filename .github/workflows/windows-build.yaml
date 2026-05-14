@@ -17,6 +17,7 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
+      # 1. Install MinGW-w64 toolchain for C dependencies (jemalloc)
       - name: Setup MSYS2 and MinGW
         uses: msys2/setup-msys2@v2
         with:
@@ -25,26 +26,25 @@ jobs:
           install: base-devel mingw-w64-x86_64-toolchain
           path-type: inherit
 
+      # 2. Setup Rust for the GNU target
       - name: Install Rust (GNU Toolchain)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
 
-      - name: Prepare patched jemalloc
-        shell: msys2 {0}
-        run: |
-          git clone --depth 1 --branch 5.3.0 https://github.com/jemalloc/jemalloc.git /tmp/jemalloc
-          sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' /tmp/jemalloc/build-aux/config.sub
-
+      # 3. Build all default features EXCEPT jemalloc (which needs Rust's alloc
+      #    as a native static lib on mingw, but it's only shipped as .rlib).
+      #    The Windows system allocator is perfectly adequate.
       - name: Build Release Binaries
         working-directory: rust
         shell: msys2 {0}
-        env:
-          JEMALLOC_OVERRIDE: /tmp/jemalloc
         run: |
-          RUST_LIB="$(rustc --print sysroot)/lib/rustlib/x86_64-pc-windows-gnu/lib"
-          LIBRARY_PATH="$RUST_LIB:${LIBRARY_PATH:-$RUST_LIB}" cargo build --release --target x86_64-pc-windows-gnu
+          cargo build --release \
+            --target x86_64-pc-windows-gnu \
+            --no-default-features \
+            --features "tree-sitter,embeddings,http-server,secure-update"
 
+      # 4. Upload compiled binaries
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
