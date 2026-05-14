@@ -31,10 +31,14 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # 3. Build strictly inside the MSYS2 bash shell to avoid all Windows path issues
+      # 3. Build inside MSYS2 bash, with a known BUILD triple so jemalloc's
+      #    bundled config.sub can validate it (MSYS2's config.guess returns
+      #    x86_64-pc-win32 which jemalloc 5.3 does not recognise).
       - name: Build Release Binaries
         working-directory: rust
         shell: msys2 {0}
+        env:
+          BUILD: x86_64-w64-mingw32
         run: cargo build --release --target x86_64-pc-windows-gnu
 
       # 4. Zip and provide the download
