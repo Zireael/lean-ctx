@@ -14,19 +14,22 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
-      - name: Install Rust (GNU Toolchain)
+      # 1. Use the default MSVC Rust toolchain for Windows
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
 
-      # Added working-directory to point to the rust subfolder
+      # 2. Inject Visual Studio INCLUDE/LIB variables for the C compiler
+      - name: Setup MSVC Environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # 3. Build natively (dropping the GNU target flag)
       - name: Build Release Binaries
         working-directory: rust
-        run: cargo build --release --target x86_64-pc-windows-gnu
+        run: cargo build --release
 
-      # Updated the path to look inside the rust directory's target folder
+      # 4. Upload from the standard release directory
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
           name: lean-ctx-windows-exes
-          path: rust/target/x86_64-pc-windows-gnu/release/*.exe
+          path: rust/target/release/*.exe
