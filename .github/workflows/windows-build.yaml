@@ -3,6 +3,9 @@ name: Build Upstream Windows Binaries
 on:
   workflow_dispatch: 
 
+env:
+  CARGO_TARGET_DIR: target
+
 jobs:
   build:
     runs-on: windows-latest
@@ -14,7 +17,7 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
-      # 1. Install a complete, proper MinGW-w64 toolchain
+      # 1. Install MinGW-w64 toolchain (gcc needed by jemalloc)
       - name: Setup MSYS2 and MinGW
         uses: msys2/setup-msys2@v2
         with:
@@ -36,12 +39,13 @@ jobs:
           git clone --depth 1 --branch 5.3.0 https://github.com/jemalloc/jemalloc.git /tmp/jemalloc
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' /tmp/jemalloc/build-aux/config.sub
 
-      # 4. Build with patched jemalloc
+      # 4. Build - add Rust lib path so the linker can find -lalloc etc.
       - name: Build Release Binaries
         working-directory: rust
         shell: msys2 {0}
         env:
           JEMALLOC_OVERRIDE: /tmp/jemalloc
+          RUSTFLAGS: -L $(rustc --print sysroot)/lib/rustlib/x86_64-pc-windows-gnu/lib
         run: cargo build --release --target x86_64-pc-windows-gnu
 
       # 5. Upload compiled binaries
