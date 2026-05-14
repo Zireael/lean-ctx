@@ -1,7 +1,49 @@
+# ---------------------------------------------------------------------------
+# Windows CI: build lean-ctx with jemalloc under MSYS2/MinGW
+#
+# Why this is complex (read before modifying):
+#
+# 1. JEMALLOC OVERRIDE, not autotools
+#    tikv-jemalloc-sys's build script calls `sh configure && make` with
+#    --build=x86_64-pc-win32 (derived from HOST=x86_64-pc-windows-msvc on
+#    GitHub runners).  Jemalloc 5.3.0's config.sub rejects win32* as an OS.
+#    Setting HOST in `env:` doesn't help — cargo overrides HOST when spawning
+#    build scripts.  Our solution: pre-build jemalloc externally and point the
+#    build script at the ready-made .a via JEMALLOC_OVERRIDE.
+#
+# 2. RELEASE TARBALL, not git tag
+#    The git tag 5.3.0 only commits configure.ac / Makefile.in — maintainers
+#    ship the generated `configure` script in the GitHub Release tarball only.
+#    git clone --branch 5.3.0 produces a source tree without ./configure.
+#
+# 3. SYMBOL PREFIX must match tikv-jemallocator
+#    The build script passes --with-jemalloc-prefix=_rjem_ and
+#    --with-private-namespace=_rjem_.  tikv-jemallocator references symbols
+#    like _rjem_malloc, _rjem_sdallocx, etc.  If you omit these flags the
+#    library builds with the default prefix (je_) and linking fails with
+#    "undefined reference to `_rjem_malloc'".
+#
+# 4. MinGW LIBRARY FILENAME differs from Linux
+#    On MinGW, `make install_lib_static install_include` produces
+#    jemalloc_s.lib (a GNU-ar archive, same format as .a, but with .lib
+#    extension).  JEMALLOC_OVERRIDE's path-parsing code strips the "lib"
+#    prefix from the file stem via &stem[3..] — if you point it at
+#    jemalloc_s.lib, the stem "jemalloc_s" becomes "alloc_s" → broken link.
+#    Fix: copy/symlink jemalloc_s.lib → libjemalloc.a so the stem is
+#    "libjemalloc" → link flag is "jemalloc".
+#
+# 5. DUMMY liballoc.a for the -lalloc linker flag
+#    When #[global_allocator] replaces the system allocator on
+#    x86_64-pc-windows-gnu, the Rust compiler emits a native -lalloc flag.
+#    The alloc crate ships as .rlib only on this target — there is no
+#    liballoc.a in the Rust sysroot for the linker to resolve.  The .rlib
+#    already provides all alloc symbols, so we satisfy the flag with an empty
+#    archive containing a single dummy object file.
+# ---------------------------------------------------------------------------
 name: Build Upstream Windows Binaries
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 env:
   CARGO_TARGET_DIR: target
@@ -17,6 +59,9 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
+      # ---- toolchain -------------------------------------------------------
+      # MinGW-w64 provides the C compiler (gcc, ar, ld) that jemalloc needs.
+      # Rust's GNU target uses the MinGW linker for native-library resolution.
       - name: Setup MSYS2 and MinGW
         uses: msys2/setup-msys2@v2
         with:
@@ -30,10 +75,23 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      # Manual jemalloc build from release tarball (git tag lacks configure).
-      # Must match tikv-jemalloc-sys's configure flags:
-      #   --with-jemalloc-prefix=_rjem_  (tikv-jemallocator expects _rjem_malloc etc.)
-      #   --with-private-namespace=_rjem_
+      # ---- build jemalloc --------------------------------------------------
+      # WHY MANUAL? tikv-jemalloc-sys's built-in autotools step passes
+      # --build=x86_64-pc-win32 (from HOST=x86_64-pc-windows-msvc) which
+      # config.sub rejects.  JEMALLOC_OVERRIDE bypasses that step entirely.
+      #
+      # WHY TARBALL? The git tag 5.3.0 omits generated files (configure,
+      # Makefile.in is a template, not the real Makefile).  Only the release
+      # tarball contains them.
+      #
+      # WHY --with-jemalloc-prefix=_rjem_?  tikv-jemallocator is compiled
+      # against that prefix.  Default is je_ — linker would fail on every
+      # _rjem_* reference.
+      #
+      # WHY cp jemalloc_s.lib → libjemalloc.a?  On MinGW, the library file is
+      # jemalloc_s.lib (no "lib" prefix).  JEMALLOC_OVERRIDE strips 3 chars
+      # from the stem (expects "lib" prefix).  Without the rename the link
+      # flag becomes -lalloc_s instead of -ljemalloc.
       - name: Build jemalloc from source
         shell: msys2 {0}
         run: |
@@ -43,6 +101,9 @@ jobs:
           mkdir -p /tmp/jemalloc-build /tmp/jemalloc-prefix/lib
           tar -xf /tmp/jemalloc.tar.bz2 -C /tmp/jemalloc-build --strip-components=1
           cd /tmp/jemalloc-build
+          # Patch config.sub — MSYS2's config.site sets $build_alias from
+          # MSYSTEM_CHOST which can produce x86_64-pc-win32, and jemalloc's
+          # 2021-vintage config.sub doesn't know that OS string.
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
           ./configure --host=x86_64-w64-mingw32 \
                       --disable-cxx --enable-shared=no \
@@ -52,12 +113,19 @@ jobs:
           make -j$(nproc)
           make install_lib_static install_include
           ls -la /tmp/jemalloc-prefix/lib/
-          # MinGW builds jemalloc as jemalloc_s.lib (not libjemalloc.a).
-          # Rename so JEMALLOC_OVERRIDE can find the right file.
           cp /tmp/jemalloc-prefix/lib/jemalloc_s.lib \
              /tmp/jemalloc-prefix/lib/libjemalloc.a
 
-      # Build lean-ctx with jemalloc + dummy liballoc.a for -lalloc
+      # ---- build lean-ctx --------------------------------------------------
+      # JEMALLOC_OVERRIDE: must be a Windows-native path (backslashes / mixed
+      # slashes) because the Rust build script is a native process and can't
+      # resolve MSYS2 virtual paths like /tmp/....
+      #
+      # liballoc.a: Rust emits -lalloc when #[global_allocator] is used on
+      # x86_64-pc-windows-gnu.  The alloc crate is only available as .rlib
+      # for this target — the linker finds no liballoc.a.  Providing an empty
+      # archive satisfies the flag; real symbols come from the .rlib already
+      # linked statically.
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
@@ -66,7 +134,7 @@ jobs:
 
           ls -la /tmp/jemalloc-prefix/lib/libjemalloc.a
 
-          # Dummy liballoc.a for -lalloc (real symbols from .rlib)
+          # Dummy liballoc.a — -lalloc linker flag resolution
           printf 'void __dummy_alloc_ignore(void) {}\n' | \
             gcc -xc -c - -o /tmp/jemalloc-prefix/lib/dummy.o
           ar crs /tmp/jemalloc-prefix/lib/liballoc.a \
