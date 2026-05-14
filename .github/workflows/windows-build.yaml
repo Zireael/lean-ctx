@@ -17,7 +17,6 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
-      # 1. Install MinGW-w64 toolchain (needed for jemalloc's C build)
       - name: Setup MSYS2 and MinGW
         uses: msys2/setup-msys2@v2
         with:
@@ -26,24 +25,21 @@ jobs:
           install: base-devel mingw-w64-x86_64-toolchain
           path-type: inherit
 
-      # 2. Setup Rust for the GNU target
       - name: Install Rust (GNU Toolchain)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
 
-      # 3. Build jemalloc 5.3.0 manually, then point JEMALLOC_OVERRIDE at it.
-      #    This bypasses tikv-jemalloc-sys's configure which fails because
-      #    --build=x86_64-pc-win32 (from the MSVC host, which cargo sets and
-      #    we cannot override) isn't recognised by config.sub.
+      # Build jemalloc manually.  Must use --single-branch (not --depth 1)
+      # because git shallow-clone + tag has a bug where the worktree stays
+      # empty.
       - name: Build jemalloc from source
         shell: msys2 {0}
         run: |
           set -eux
-          git clone --depth 1 --branch 5.3.0 \
+          git clone --branch 5.3.0 --single-branch \
             https://github.com/jemalloc/jemalloc.git /tmp/jemalloc-build
           cd /tmp/jemalloc-build
-          # Patch config.sub for MSYS2's build triple
           sed -i 's/^\tmingw32\* | mingw64\*/\tmingw32* | mingw64* | win32*/' build-aux/config.sub
           ./configure --host=x86_64-w64-mingw32 \
                       --disable-cxx --enable-shared=no \
@@ -52,15 +48,14 @@ jobs:
           make install_lib_static install_include
           ls -la /tmp/jemalloc-prefix/lib/
 
-      # 4. Build lean-ctx with jemalloc.
-      #    Provide dummy liballoc.a alongside libjemalloc.a to satisfy -lalloc.
+      # Build lean-ctx with jemalloc feature enabled.
+      # Provide dummy liballoc.a alongside libjemalloc.a for -lalloc.
       - name: Build Release Binaries (with jemalloc)
         working-directory: rust
         shell: msys2 {0}
         run: |
           set -eux
-
-          # Dummy liballoc.a for -lalloc linker flag (real symbols from .rlib)
+          # Dummy liballoc.a satisfies -lalloc (real symbols from .rlib)
           mkdir -p /tmp/jemalloc-prefix/lib
           printf 'void __dummy_alloc_ignore(void) {}\n' | \
             gcc -xc -c - -o /tmp/jemalloc-prefix/lib/dummy.o
@@ -76,7 +71,6 @@ jobs:
 
           cargo build --release --target x86_64-pc-windows-gnu
 
-      # 5. Upload
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
