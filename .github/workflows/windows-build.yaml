@@ -14,22 +14,32 @@ jobs:
           repository: yvgude/lean-ctx
           ref: main
 
-      # 1. Use the default MSVC Rust toolchain for Windows
-      - name: Install Rust
+      # 1. Install a complete, proper MinGW-w64 toolchain
+      - name: Setup MSYS2 and MinGW
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          # Installs the actual gcc, binutils, and make required by jemalloc
+          install: base-devel mingw-w64-x86_64-toolchain
+          # Inherits the Windows PATH so MSYS2 can find the rustup/cargo binaries
+          path-type: inherit
+
+      # 2. Setup Rust for the GNU target
+      - name: Install Rust (GNU Toolchain)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
 
-      # 2. Inject Visual Studio INCLUDE/LIB variables for the C compiler
-      - name: Setup MSVC Environment
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # 3. Build natively (dropping the GNU target flag)
+      # 3. Build strictly inside the MSYS2 bash shell to avoid all Windows path issues
       - name: Build Release Binaries
         working-directory: rust
-        run: cargo build --release
+        shell: msys2 {0}
+        run: cargo build --release --target x86_64-pc-windows-gnu
 
-      # 4. Upload from the standard release directory
+      # 4. Zip and provide the download
       - name: Upload Compiled Binaries
         uses: actions/upload-artifact@v4
         with:
           name: lean-ctx-windows-exes
-          path: rust/target/release/*.exe
+          path: rust/target/x86_64-pc-windows-gnu/release/*.exe
